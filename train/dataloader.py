@@ -93,6 +93,52 @@ class Dataset:
     def __iter__(self):
         return iter(self.data)
 
+def get_kl(split: str) -> Dataset:
+    """
+    Load the customized KL dataset and convert it into to a Dataset.
+
+    We first create a LLM safety allignment dataset based on the csHuang/SafeAligner and llm-wizard/alpaca-gpt4-data.
+    We then load the dataset from a json file, and convert it into a Dataset. 
+    """
+    rank0_print(f'Loading KL dataset from Huggingface...')
+    dataset = datasets.load_dataset('rhaldar97/Safety_Accept_Reject', split='train')
+
+    # Split the dataset into train and test 
+    dataset_split = dataset.train_test_split(test_size=0.1, seed=42) 
+    # Access the train and test splits 
+    if split == 'train':
+        dataset = dataset_split['train'] 
+    else:
+        dataset = dataset_split['test']
+     
+    if on_rank0():
+        dataset = tqdm.tqdm(dataset, desc='Processing KL')
+    
+    data = Dataset('kl')
+
+    for row in dataset:
+        conversation = [{"role": "user", "content": row['prompt']}]
+        prompt = row['prompt']
+
+        if int(row['safety']):
+            aligned_list = row['acc_responses']
+            unaligned_list = row['rej_responses']
+        else:
+            aligned_list = row['rej_responses']
+            unaligned_list = row['acc_responses']
+
+        aligned_split = min(len(aligned_list), len(unaligned_list))
+        response = aligned_list[:aligned_split] + unaligned_list[:aligned_split]
+
+        data[prompt].prompt = conversation
+        data[prompt].original_prompt = prompt
+        for response in response:
+            data[prompt].generations.append(response)
+        for i in range(aligned_split):
+            data[prompt].pairs.append((i, i+aligned_split))
+        data[prompt].dataset_name = 'kl'
+
+    return data
 
 def get_alpacaeval(split: str) -> Dataset:
     """
@@ -540,7 +586,79 @@ class DataLoader:
     def get_num_training_steps(self):
         """Get the number of training steps."""
         raise NotImplementedError
-    
+
+class SimpleKTODataLoader(DataLoader):
+    """
+    Legacy Dataloader for the original variant of KTO that presumes access to even number of desirable and 
+    undesirable examples in each microbatch.. 
+
+    Each batch contains half (x, desired output y) and half (x, undesired output y), where no x should appear 
+    twice because of shuffling. The desirable and undesirable examples are interleaved in the batch (e.g.,
+    [desirable, undesirable, desirable, ...]).
+    """
+    def __iter__(self):
+        flat_data = []
+        prompts = list(self.full_data.keys()) 
+        random.shuffle(prompts) # otherwise, will be frontloaded with prompts in same domain
+
+        for prompt in prompts:
+            example = self.full_data[prompt]
+
+            if self.max_prompt_count:
+                example.pairs = random.sample(example.pairs, min(self.max_prompt_count, len(example.pairs)))
+
+            for i,j in example.pairs:
+                flat_data.append((example, example.generations[i], 'chosen'))
+                flat_data.append((example, example.generations[j], 'rejected'))
+
+        epoch_idx = 0
+        example_idx = 0
+        done = False
+
+        while True:
+            if done: break
+            random.shuffle(flat_data)   # so generations in the same preference are not in the same batch
+            prev_example = None
+            batch = []
+
+            chosen_example_queue, rejected_example_queue = [], [] 
+            quota = self.batch_size // 2
+
+            for example, generation, status in flat_data:
+                batch_element = self.tokenize_batch_element(example.prompt, generation, example.truncation_mode)
+                batch_element['status'] = status
+
+                if status == 'chosen':
+                    chosen_example_queue.append(batch_element)
+                else:
+                    rejected_example_queue.append(batch_element)
+
+                # only flush queues when you can get an even number of chosen and rejected examples
+                # weave together chosen and rejected examples one after the other to prevent per-device microbatch from being all chosen or all rejected
+                if len(chosen_example_queue) >= quota and len(rejected_example_queue) >= quota:
+                    while len(batch) < self.batch_size:
+                        batch.append(chosen_example_queue.pop(0))
+                        batch.append(rejected_example_queue.pop(0))
+                    
+                if len(batch) >= self.batch_size:
+                    example_idx += len(batch)
+                    yield self.collate(batch)
+                    batch = []
+
+                    if self.n_examples is not None and example_idx >= self.n_examples:
+                        rank0_print(f'Finished generating {example_idx} examples on {self.split} split')
+                        done = True
+                        break
+
+            epoch_idx += 1
+            if self.n_epochs is not None and epoch_idx >= self.n_epochs:
+                done = True
+                break    
+    def get_num_training_steps(self):
+        max_prompt_count = min(float("inf"), self.max_prompt_count) if self.max_prompt_count else float("inf")
+        num_pairs = int(sum(min(max_prompt_count, len(example.pairs)) for _, example in self.full_data.items()))
+        num_training_steps = 2*num_pairs
+        return num_training_steps
 
 class SFTDataLoader(DataLoader):
     """

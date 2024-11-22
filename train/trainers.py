@@ -51,6 +51,9 @@ import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
 
+from torch.autograd import Variable # Needed for custom backprop
+torch.autograd.set_detect_anomaly(True)
+import math
 
 class BasicTrainer(object):
     policy_hf_model_class = AutoModelForCausalLM
@@ -232,81 +235,84 @@ class BasicTrainer(object):
         
         if self.reference_model is not None:
             self.reference_model.eval()
+        
+        for epoch in range(self.config.global_epochs):
+            self.accelerator.print(f'====== Running epoch {epoch} =========')
 
-        last_log = None
-        batch_metrics = defaultdict(list)
+            last_log = None
+            batch_metrics = defaultdict(list)
 
-        for batch in self.train_iterator:
-            if self.batch_counter < self.num_skip_batches:
+            for batch in self.train_iterator:
+                if self.batch_counter < self.num_skip_batches:
+                    self.batch_counter += 1
+                    self.example_counter += self.config.model.batch_size
+                    continue
+
+                # EVALUATION
+                if self.example_counter % self.config.eval_every == 0 and (self.example_counter > 0 or self.config.do_first_eval):
+                    results = self.eval()
+
+                    if self.example_counter > 0:
+                        if self.config.debug:
+                            self.accelerator.print('skipping save in debug mode')
+                        elif self.config.intermediate_checkpoints:
+                            output_dir = os.path.join(self.run_dir, f'step-{self.example_counter}')
+                            self.accelerator.print(f'creating checkpoint to write to {output_dir}...')
+                            self.save(output_dir, results['results'], final_save=False)
+
+                    self.accelerator.print(results['results'])
+                    delete_dicts(results)
+
+                # TRAINING
+                self.policy.train()
+                accumulated = 0
+                start_time = time.time()
+                
+                with self.accelerator.accumulate(self.policy):
+                    batch = {k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    loss, metrics = self.get_batch_metrics(batch)
+                    self.accelerator.backward(loss)
+
+                    for k, v in metrics.items():
+                        batch_metrics[k].extend(torch.as_tensor(v).reshape(-1).float().cpu().numpy().tolist())
+
+                    grad_norm = self.accelerator.clip_grad_norm_(self.policy.parameters(), self.config.model.max_grad_norm)
+                    batch_metrics['grad_norm'].extend(torch.as_tensor(grad_norm).reshape(-1).float().cpu().numpy().tolist())
+                    self.optimizer.step()
+                    self.scheduler.step()
+                    self.optimizer.zero_grad()
+                    accumulated += 1
+
+                step_time = time.time() - start_time
+                examples_per_second = self.config.model.batch_size / step_time
+                batch_metrics['examples_per_second'].append(examples_per_second)
+                
                 self.batch_counter += 1
                 self.example_counter += self.config.model.batch_size
-                continue
 
-            # EVALUATION
-            if self.example_counter % self.config.eval_every == 0 and (self.example_counter > 0 or self.config.do_first_eval):
-                results = self.eval()
+                if last_log is None or time.time() - last_log > self.config.minimum_log_interval_secs:
+                    mean_train_metrics = {}
+                    for k, v in batch_metrics.items():
+                        if len(v) > 0:
+                            mean_train_metrics[k] = sum(v) / len(v)
 
-                if self.example_counter > 0:
-                    if self.config.debug:
-                        self.accelerator.print('skipping save in debug mode')
-                    elif self.config.intermediate_checkpoints:
-                        output_dir = os.path.join(self.run_dir, f'step-{self.example_counter}')
-                        self.accelerator.print(f'creating checkpoint to write to {output_dir}...')
-                        self.save(output_dir, results['results'], final_save=False)
+                    mean_train_metrics['counters/examples'] = self.example_counter
+                    mean_train_metrics['counters/updates'] = self.batch_counter
+                    self.accelerator.print(f'train stats after {self.example_counter} examples: {formatted_dict(mean_train_metrics)}')
 
-                self.accelerator.print(results['results'])
-                delete_dicts(results)
+                    if self.config.wandb.enabled and self.accelerator.is_main_process:
+                        wandb.log(mean_train_metrics, step=self.example_counter)
 
-            # TRAINING
-            self.policy.train()
-            accumulated = 0
-            start_time = time.time()
-            
-            with self.accelerator.accumulate(self.policy):
-                batch = {k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-                loss, metrics = self.get_batch_metrics(batch)
-                self.accelerator.backward(loss)
+                    last_log = time.time()
+                    batch_metrics = defaultdict(list)
+                else:
+                    self.accelerator.print(f'skipping logging after {self.example_counter} examples to avoid logging too frequently')
 
-                for k, v in metrics.items():
-                    batch_metrics[k].extend(torch.as_tensor(v).reshape(-1).float().cpu().numpy().tolist())
+                delete_dicts(batch, metrics, batch_metrics, mean_train_metrics)
 
-                grad_norm = self.accelerator.clip_grad_norm_(self.policy.parameters(), self.config.model.max_grad_norm)
-                batch_metrics['grad_norm'].extend(torch.as_tensor(grad_norm).reshape(-1).float().cpu().numpy().tolist())
-                self.optimizer.step()
-                self.scheduler.step()
-                self.optimizer.zero_grad()
-                accumulated += 1
-
-            step_time = time.time() - start_time
-            examples_per_second = self.config.model.batch_size / step_time
-            batch_metrics['examples_per_second'].append(examples_per_second)
-            
-            self.batch_counter += 1
-            self.example_counter += self.config.model.batch_size
-
-            if last_log is None or time.time() - last_log > self.config.minimum_log_interval_secs:
-                mean_train_metrics = {}
-                for k, v in batch_metrics.items():
-                    if len(v) > 0:
-                        mean_train_metrics[k] = sum(v) / len(v)
-
-                mean_train_metrics['counters/examples'] = self.example_counter
-                mean_train_metrics['counters/updates'] = self.batch_counter
-                self.accelerator.print(f'train stats after {self.example_counter} examples: {formatted_dict(mean_train_metrics)}')
-
-                if self.config.wandb.enabled and self.accelerator.is_main_process:
-                    wandb.log(mean_train_metrics, step=self.example_counter)
-
-                last_log = time.time()
-                batch_metrics = defaultdict(list)
-            else:
-                self.accelerator.print(f'skipping logging after {self.example_counter} examples to avoid logging too frequently')
-
-            delete_dicts(batch, metrics, batch_metrics, mean_train_metrics)
-
-            if accumulated >= self.config.model.gradient_accumulation_steps:
-                self.free_memory()
-                accumulated = 0
+                if accumulated >= self.config.model.gradient_accumulation_steps:
+                    self.free_memory()
+                    accumulated = 0
 
     def save(self, output_dir: Optional[str] = None, metrics: Optional[Dict] = {}, final_save=True):
         """Save tokenizer, policy model, optimizer, scheduler state to disk."""
@@ -338,7 +344,7 @@ class BasicTrainer(object):
         self.accelerator.wait_for_everyone()
         self.accelerator.print(f"Saving model...")
 
-        if self.config.model.use_peft and final_save:
+        if False:#self.config.model.use_peft and final_save:
             state_dict = get_base_model_state_dict_from_peft(
                 self.accelerator.get_state_dict(self.policy),
                 self.config.model.peft.lora_alpha,
@@ -458,7 +464,7 @@ class UnpairedPreferenceTrainer(BasicTrainer):
         metrics[f'loss/{mode}'] = self.accelerator.gather(losses.mean().detach()).mean()
 
         del policy_chosen_logps, policy_rejected_logps
-        del combined_rewards, combined_statuses, all_rewards, all_statuses, chosen_rewards_idx, rejected_rewards_idx, all_devices_losses
+        del combined_rewards, combined_statuses, all_rewards, all_statuses, chosen_rewards_idx, rejected_rewards_idx
 
         if self.reference_model:
             del reference_chosen_logps, reference_rejected_logps
@@ -1207,3 +1213,228 @@ class PPOTrainer(BasicTrainer):
         unwrapped_v_head = self.accelerator.unwrap_model(self.policy.v_head)
         torch.save(unwrapped_v_head.state_dict(), os.path.join(output_dir, "v_head.pt"))
         self.accelerator.wait_for_everyone()
+
+# MINE based code to deal with log E exp gradients with moving averages
+EPS = 1e-6
+
+class EMALoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, running_ema):
+        ctx.save_for_backward(input, running_ema)
+        input_log_sum_exp = input.exp().mean().log()
+
+        return input_log_sum_exp
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, running_mean = ctx.saved_tensors
+        grad = grad_output * input.exp().detach() / \
+            (running_mean + EPS) / input.shape[0]
+        return grad, None
+
+
+def ema(mu, alpha, past_ema):
+    return alpha * mu + (1.0 - alpha) * past_ema
+
+def ema_loss(x, running_mean, alpha):
+    assert x.shape[0] > 0, f"The first dimension of x should be positive not {x.shape[0]}"
+    
+    t_exp = torch.exp(torch.logsumexp(x, 0) - math.log(x.shape[0])).detach()
+    if running_mean == 0:
+        running_mean = t_exp
+    else:
+        running_mean = ema(t_exp, alpha, running_mean.item())
+    t_log = EMALoss.apply(x, running_mean)
+
+    # Recalculate ema
+
+    return t_log, running_mean
+
+class KLTrainer(UnpairedPreferenceTrainer):
+
+    def __init__(self, 
+                 tokenizer: AutoTokenizer, 
+                 config: DictConfig, 
+                 train_iterator: dataloader.DataLoader, 
+                 eval_iterator: dataloader.DataLoader, 
+                 accelerator: Accelerator,
+                 optimizer: torch.optim.Optimizer,
+                 scheduler: torch.optim.lr_scheduler.LRScheduler,
+                 policy: nn.Module, 
+                 reference_model: Optional[nn.Module] = None,
+                 num_skip_batches=0
+                 ):
+        
+        super().__init__(tokenizer, 
+        config, 
+        train_iterator, 
+        eval_iterator,
+        accelerator, 
+        optimizer,
+        scheduler,
+        policy, 
+        reference_model,
+        num_skip_batches)
+
+        self.moving_avg_track = 0
+        self.moving_avg_rate = config.loss.moving_avg_rate
+
+    def loss(self,
+             policy_chosen_logps: torch.FloatTensor,
+             policy_rejected_logps: torch.FloatTensor,
+             reference_chosen_logps: torch.FloatTensor,
+             reference_rejected_logps: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+
+        chosen_logratios = (policy_chosen_logps.sum(-1) - reference_chosen_logps.sum(-1))
+        rejected_logratios = (policy_rejected_logps.sum(-1)-reference_rejected_logps.sum(-1))
+
+        T_chosen = self.config.loss.beta*chosen_logratios
+        T_rejected = self.config.loss.beta*rejected_logratios
+        
+        chosen_rewards = T_chosen.detach()
+        rejected_rewards = T_rejected.detach() 
+
+        return T_chosen, T_rejected, chosen_rewards, rejected_rewards
+    
+
+    
+    def reset_moving_avg(self):
+        self.moving_avg_track = 0
+    
+    def get_batch_metrics(self, batch: Dict[str, Union[List, torch.LongTensor]], mode: str='train'):
+        """Compute the loss and other metrics for the given batch of inputs."""
+        metrics = {}
+
+        if self.reference_model is None:
+            policy_chosen_logps, policy_rejected_logps = self.forward(self.policy, batch)
+            T_chosen, T_rejected, chosen_rewards, rejected_rewards = self.loss(policy_chosen_logps, policy_rejected_logps)
+        else:
+            policy_chosen_logps, policy_rejected_logps = self.forward(self.policy, batch)
+            with torch.no_grad():
+                reference_chosen_logps, reference_rejected_logps = self.forward(self.reference_model, batch, use_cache=self.config.cache_reference_logprobs)
+            T_chosen, T_rejected, chosen_rewards, rejected_rewards = self.loss(policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps)
+
+        # all_gather treats empty lists/tensors poorly, and empty lists can occur because a batch can contain all chosen or all rejected example
+        # therefore, concatenate chosen + rejected rewards before all_gather
+        combined_rewards = torch.cat((chosen_rewards.detach(), rejected_rewards.detach()), 0)
+        combined_statuses = torch.Tensor([1] * len(chosen_rewards) + [0] * len(rejected_rewards)).to(self.accelerator.device)
+
+        if self.config.loss.type=='ma':
+            unaligned_loss, self.moving_avg_track = ema_loss(T_rejected, self.moving_avg_track, self.moving_avg_rate)
+        elif self.config.loss.type=='biased':
+            unaligned_loss = torch.logsumexp(T_rejected, 0) - math.log(T_rejected.shape[0])
+        elif self.config.loss.type=='f-div':
+            unaligned_loss = torch.exp(T_rejected - 1).mean()
+        aligned_loss = T_chosen.mean()
+
+        if self.config.loss.normalize:
+            min_loss=np.minimum(aligned_loss.item(), unaligned_loss.item())
+            unaligned_loss = unaligned_loss*(min_loss/(unaligned_loss.item()+1e-9))
+
+        all_rewards = self.accelerator.gather(combined_rewards.detach())
+        all_statuses = self.accelerator.gather(combined_statuses.detach())
+        chosen_rewards_idx = [ i for i in range(len(all_statuses)) if all_statuses[i].item() == 1 ]
+        rejected_rewards_idx = [ i for i in range(len(all_statuses)) if all_statuses[i].item() == 0 ]
+
+        metrics[f'rewards_{mode}/chosen'] = all_rewards[chosen_rewards_idx]
+        metrics[f'rewards_{mode}/rejected'] = all_rewards[rejected_rewards_idx]
+        metrics[f'rewards_{mode}/margins'] = torch.Tensor([(all_rewards[chosen_rewards_idx].mean().nan_to_num(0) - all_rewards[rejected_rewards_idx].mean().nan_to_num(0)).item()])
+        metrics[f'aligned_loss/{mode}'] = [(all_rewards[chosen_rewards_idx].mean().nan_to_num(0)).item()]
+        metrics[f'unaligned_loss/{mode}'] = [(all_rewards[rejected_rewards_idx].exp().mean().log().nan_to_num(0)).item()]
+        metrics[f'total_loss/{mode}'] = [(-all_rewards[chosen_rewards_idx].mean().nan_to_num(0) + all_rewards[rejected_rewards_idx].exp().mean().log().nan_to_num(0)).item()]
+
+        del policy_chosen_logps, policy_rejected_logps
+        del combined_rewards, combined_statuses, all_rewards, all_statuses, chosen_rewards_idx, rejected_rewards_idx
+
+        if self.reference_model:
+            del reference_chosen_logps, reference_rejected_logps
+
+        return (-aligned_loss + unaligned_loss), metrics
+    
+    def train(self):
+        """Begin either SFT or HALO training, with periodic evaluation. This is subclassed when implementing PPO."""
+
+        self.accelerator.print(f'Using {self.config.optimizer} optimizer with learning rate {self.config.lr}')
+        
+        if self.reference_model is not None:
+            self.reference_model.eval()
+        
+        for epoch in range(self.config.global_epochs):
+            self.accelerator.print(f'====== Running epoch {epoch}/{self.config.global_epochs} =========')
+            self.accelerator.print(f'Resetting moving avg to 0')
+            self.reset_moving_avg()
+
+            last_log = None
+            batch_metrics = defaultdict(list)
+
+            for batch in self.train_iterator:
+                if self.batch_counter < self.num_skip_batches:
+                    self.batch_counter += 1
+                    self.example_counter += self.config.model.batch_size
+                    continue
+
+                # EVALUATION
+                if self.example_counter % self.config.eval_every == 0 and (self.example_counter > 0 or self.config.do_first_eval):
+                    results = self.eval()
+
+                    if self.example_counter > 0:
+                        if self.config.debug:
+                            self.accelerator.print('skipping save in debug mode')
+                        elif self.config.intermediate_checkpoints:
+                            output_dir = os.path.join(self.run_dir, f'step-{self.example_counter}')
+                            self.accelerator.print(f'creating checkpoint to write to {output_dir}...')
+                            self.save(output_dir, results['results'], final_save=False)
+
+                    self.accelerator.print(results['results'])
+                    delete_dicts(results)
+
+                # TRAINING
+                self.policy.train()
+                accumulated = 0
+                start_time = time.time()
+                
+                with self.accelerator.accumulate(self.policy):
+                    batch = {k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    loss, metrics = self.get_batch_metrics(batch)
+                    self.accelerator.backward(loss)
+
+                    for k, v in metrics.items():
+                        batch_metrics[k].extend(torch.as_tensor(v).reshape(-1).float().cpu().numpy().tolist())
+
+                    grad_norm = self.accelerator.clip_grad_norm_(self.policy.parameters(), self.config.model.max_grad_norm)
+                    batch_metrics['grad_norm'].extend(torch.as_tensor(grad_norm).reshape(-1).float().cpu().numpy().tolist())
+                    self.optimizer.step()
+                    self.scheduler.step()
+                    self.optimizer.zero_grad()
+                    accumulated += 1
+
+                step_time = time.time() - start_time
+                examples_per_second = self.config.model.batch_size / step_time
+                batch_metrics['examples_per_second'].append(examples_per_second)
+                
+                self.batch_counter += 1
+                self.example_counter += self.config.model.batch_size
+
+                if last_log is None or time.time() - last_log > self.config.minimum_log_interval_secs:
+                    mean_train_metrics = {}
+                    for k, v in batch_metrics.items():
+                        if len(v) > 0:
+                            mean_train_metrics[k] = sum(v) / len(v)
+
+                    mean_train_metrics['counters/examples'] = self.example_counter
+                    mean_train_metrics['counters/updates'] = self.batch_counter
+                    self.accelerator.print(f'train stats after {self.example_counter} examples: {formatted_dict(mean_train_metrics)}')
+
+                    if self.config.wandb.enabled and self.accelerator.is_main_process:
+                        wandb.log(mean_train_metrics, step=self.example_counter)
+
+                    last_log = time.time()
+                    batch_metrics = defaultdict(list)
+                else:
+                    self.accelerator.print(f'skipping logging after {self.example_counter} examples to avoid logging too frequently')
+
+                delete_dicts(batch, metrics, batch_metrics, mean_train_metrics)
+
+                if accumulated >= self.config.model.gradient_accumulation_steps:
+                    self.free_memory()
+                    accumulated = 0

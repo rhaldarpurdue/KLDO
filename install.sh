@@ -1,7 +1,9 @@
 #!/bin/bash
-
-conda create --name halos python=3.10.14
-conda activate halos
+module load anaconda/2024.02-py311 # change it to your own anaconda module
+module load cudnn/cuda-12.1_8.9 # change it to your own cuda module
+#conda create --name halos python=3.10.14
+conda create --prefix /depot/qfsong/LLM/env/halos python=3.10.14 # change the prefix directory
+conda activate /depot/qfsong/LLM/env/halos
 
 conda install pip
 pip install packaging ninja
@@ -16,6 +18,12 @@ pip install accelerate==0.33.0
 pip install vllm==0.5.5
 pip install alpaca-eval immutabledict langdetect wandb omegaconf openai hydra-core==1.3.2
 
+pip install matplotlib==3.8.3
+pip install numpy==1.26.4
+pip install pandas==2.2.0
+pip install scikit_learn==1.4.1.post1
+
+: <<'END'
 # lm-eval
 git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
 cd lm-evaluation-harness
@@ -29,3 +37,4 @@ task_dict = tasks.get_task_dict(task_names)
 from datasets import load_dataset
 load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval")
 EOF
+END

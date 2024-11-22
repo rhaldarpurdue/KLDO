@@ -1,0 +1,19 @@
+
+# KL Optimization
+name: kl
+
+# the temperature parameter for KL optimization
+beta: 0.1
+
+# moving average rate for tracking rejected ratios
+moving_avg_rate: 0.1
+
+trainer: KLTrainer
+
+dataloader: SimpleKTODataLoader #UnpairedPreferenceDataLoader
+
+use_reference_model: true
+
+type: ma #biased, ma, f-div
+
+normalize: false
