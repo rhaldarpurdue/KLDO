@@ -1,9 +1,7 @@
 import os
 import sys
-from bhatta_dist import *
-
 #change current directory and hf cache folder accordingly
-os.chdir('/depot/qfsong/LLM/scratch/rhaldar/representation-space-jailbreak/')
+#os.chdir('/depot/qfsong/LLM/scratch/rhaldar/representation-space-jailbreak/')
 os.environ['HF_HOME'] = '/depot/qfsong/LLM/scratch/rhaldar/hf_cache/'
 
 # Get the current working directory 
@@ -26,20 +24,21 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from eval_utils import load_dataset, load_model_and_tokenizer
+from bhatta_dist import *
 import gc
 
 parser = argparse.ArgumentParser(
         description="Visualize the last hidden states of the last token of a Transformer model with PCA"
     )
 parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--num_samples", type=int, default=100)
+parser.add_argument("--num_samples", type=int, default=1000)
 parser.add_argument("--viz", action="store_true", help="To plot visualization")
 parser.add_argument("--base_model",type=str,default='ContextualAI/archangel_sft_llama7b')
 parser.add_argument(
         "--anchors",
         type=str,
         nargs="+",
-        default=["./data/prompt-driven_benign.txt", "./data/prompt-driven_harmful.txt"],
+        default=[".dataset_generation/data/prompt-driven_benign.txt", ".dataset_generation/data/prompt-driven_harmful.txt"],
         help="Paths to the anchor datasets. Should exactly be two datasets, first "
         "one being harmless, second one being harmful, differs only in harmfulness.",
     )
@@ -47,6 +46,19 @@ parser.add_argument(
         "--system_prompt",
         type=str,
         help="(Optional) System prompt to use for the chat template",
+    )
+parser.add_argument(
+        "--alignments",
+        type=str,
+        nargs="+",
+        required=True,
+        help="names of the aligned models",
+    )
+parser.add_argument(
+        "--base_path",
+        type=str,
+        default="/depot/qfsong/LLM/scratch/rhaldar/HALOs/data/models/",
+        help="base path where the aligned models are stored",
     )
 args = parser.parse_args()
 for key, value in vars(args).items():
@@ -131,6 +143,8 @@ def plot_pca(
         # 2D plot
         for embedding, color, label in zip(embedding_list, colors, embedding_labels):
             reduced = pca_object.transform(embedding.cpu().numpy())
+            n = np.minimum(reduced.shape[0],100)
+            reduced = reduced [:n,]
             if scores:
                 sizes=torch.exp(torch.abs(scores[label])).detach().cpu().numpy()
                 scaling_factor=1/10
@@ -209,12 +223,9 @@ for idx, anchor_path in enumerate(args.anchors):
     df_anchors_list.append(df_anchors)
 
 #model alignment paths
-base_path="/depot/qfsong/LLM/scratch/rhaldar/HALOs/data/models/"
-model_list=['base',
-            f'{base_path}kl-ma_llama7b_sft_5e-05_5/FINAL/merged.pt',
-            f'{base_path}kto_llama7b_sft_5e-05_5/FINAL/merged.pt',
-            f'{base_path}dpo_llama7b_sft_5e-05_5/FINAL/merged.pt']
-model_labels=['sft','sft+kl_5e-5_LORA','sft+kto_5e-5_LORA','sft+dpo_5e-5_LORA']
+base_path = args.base_path
+model_list=['base']+ [f'{base_path}/{a}/FINAL/merged.pt' for a in args.alignments]
+model_labels=['base'] + [f'{a}' for a in args.alignments]
 metric=dict()
 
 for model_p, model_label in zip(model_list,model_labels):
@@ -257,7 +268,7 @@ for model_p, model_label in zip(model_list,model_labels):
             num_components_to_draw=2,
             color_list_string=color_list,
             embedding_labels=embedding_labels,
-            filename=f'../experiments/anchor_train/all_samples/llama_7b_{model_label}.png',plt_name=model_label
+            filename=f'../experiments/anchor_train/{model_label}.png',plt_name=model_label
         )
     sc, bd ,bc = get_metrics(hidden_states_anchors_list,
                              pca)
@@ -270,7 +281,7 @@ for model_p, model_label in zip(model_list,model_labels):
 
 import json 
 
-file_path = "../experiments/metrics.json" 
+file_path = f"../experiments/{args.alignments[0][5:]}.json" 
 # Write the dictionary to a JSON file 
 with open(file_path, "w") as json_file:
     json.dump(metric, json_file, indent=4)

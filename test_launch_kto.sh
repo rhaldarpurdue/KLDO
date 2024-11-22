@@ -14,7 +14,7 @@ conda activate /depot/qfsong/LLM/env/halos
 
 loss=kto
 datasets=[kl] #[shp,hh,oasst]
-model=llama7b_sft
+model=llama-3.2-1b
 lr=5e-05
 epochs=5
 #exp_name=${loss}_${model}_${lr}_${epochs}
@@ -29,6 +29,10 @@ export TRANSFORMERS_CACHE=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/hub
 export HF_HOME=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/
 export HF_DATASETS_CACHE=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/datasets
 export WANDB_API_KEY=8e4a0bf8aa276a6a441763aab7441d43ed309205
+export HUGGING_FACE_API_KEY=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
+
+huggingface-cli login --token $HUGGING_FACE_API_KEY
+
 cd /depot/qfsong/LLM/scratch/rhaldar/HALOs
 accelerate launch \
     --config_file accelerate_config/fsdp_2gpu.yaml \

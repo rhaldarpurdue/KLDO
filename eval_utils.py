@@ -45,8 +45,7 @@ def load_model_and_tokenizer(model_name):
             low_cpu_mem_usage=True,
             torch_dtype=torch.float16,  # NumPy doesn't support BF16
             attn_implementation="flash_attention_2",
-            trust_remote_code=True,
-            token='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'
+            trust_remote_code=True
         )
         print("Using FP16 and Flash-Attention 2...")
     else:
@@ -55,8 +54,7 @@ def load_model_and_tokenizer(model_name):
             device_map="auto",
             low_cpu_mem_usage=True,
             torch_dtype=torch.float16,
-            trust_remote_code=True,
-            token="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"
+            trust_remote_code=True
         )
         print("Using FP16 and normal attention implementation...")
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,
@@ -78,23 +76,17 @@ def load_model_and_tokenizer(model_name):
         print(
             f"The tokenizer of {model_name} does not come with a chat template. Dynamically setting one..."
         )
-        if "ContextualAI/archangel" in model_name:
-            tokenizer.chat_template = "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% elif false == true and not '<<SYS>>' in messages[0]['content'] %}{% set loop_messages = messages %}{% set system_message = '' %}{% else %}{% set loop_messages = messages %}{% set system_message = false %}{% endif %}{% for message in loop_messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if loop.index0 == 0 and system_message != false %}{% set content = '<<SYS>>\\n' + system_message + '\\n<</SYS>>\\n\\n' + message['content'] %}{% else %}{% set content = message['content'] %}{% endif %}{% if message['role'] == 'user' %}{{ bos_token + '[INST] ' + content.strip() + ' [/INST]' }}{% elif message['role'] == 'system' %}{{ '<<SYS>>\\n' + content.strip() + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'assistant' %}{{ ' '  + content.strip() + ' ' + eos_token }}{% endif %}{% endfor %}"
-        elif "HarmBench-Llama-2-13b-cls" or "Llama-2" in model_name:
+        #if "ContextualAI/archangel" in model_name:
+        #    tokenizer.chat_template = "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% elif false == true and not '<<SYS>>' in messages[0]['content'] %}{% set loop_messages = messages %}{% set system_message = '' %}{% else %}{% set loop_messages = messages %}{% set system_message = false %}{% endif %}{% for message in loop_messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if loop.index0 == 0 and system_message != false %}{% set content = '<<SYS>>\\n' + system_message + '\\n<</SYS>>\\n\\n' + message['content'] %}{% else %}{% set content = message['content'] %}{% endif %}{% if message['role'] == 'user' %}{{ bos_token + '[INST] ' + content.strip() + ' [/INST]' }}{% elif message['role'] == 'system' %}{{ '<<SYS>>\\n' + content.strip() + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'assistant' %}{{ ' '  + content.strip() + ' ' + eos_token }}{% endif %}{% endfor %}"
+        if "HarmBench-Llama-2-13b-cls"  in model_name:
             # If you are sure that the model does not require a chat template, you can skip this step like this
             print(
                 "HarmBench-Llama-2-13b-cls does not require a chat template. Skipped."
             )
-        elif "vicuna-7b-v1.5" in model_name:
-            # Otherwise, please implement the chat template manually in Jinja language like this
-            # No indentation and newlines are allowed. Please make it a single line
-            tokenizer.chat_template = "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'].strip() + '' %}{% else %}{% set loop_messages = messages %}{% set system_message = '' %}{% endif %}{{ bos_token + system_message }}{% for message in loop_messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if message['role'] == 'user' %}{{ 'USER: ' + message['content'].strip() + '' }}{% elif message['role'] == 'assistant' %}{{ 'ASSISTANT: ' + message['content'].strip() + eos_token + '' }}{% endif %}{% if loop.last and message['role'] == 'user' and add_generation_prompt %}{{ 'ASSISTANT:' }}{% endif %}{% endfor %}"
         else:
-            raise ValueError(
-                f"The chat template for the tokenizer of {model_name} is not available. "
-                "To avoid unexpected behavior, it cannot proceed with the default chat template. "
-                "Please implement it manually in `load_model_and_tokenizer()`, `utils.py`."
-            )
+            with open("template.jinja") as f:
+                tokenizer.chat_template = f.read()
+    
     return model, tokenizer
 
 
