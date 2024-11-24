@@ -14,7 +14,7 @@ conda activate /depot/qfsong/LLM/env/halos
 
 loss=dpo
 datasets=[kl] #[shp,hh,oasst]
-model=llama-3.2-1b
+model=mistral
 lr=5e-05
 epochs=5
 #exp_name=${loss}_${model}_${lr}_${epochs}
@@ -45,4 +45,4 @@ accelerate launch \
     ++model.batch_size=${batch_size} \
     ++optimizer=${optimizer} \
     ++model.gradient_accumulation_steps=${gradient_accumulation} \
-    ++intermediate_checkpoints=true
+    ++intermediate_checkpoints=false

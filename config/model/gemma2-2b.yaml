@@ -1,0 +1,6 @@
+defaults:
+  - base_model
+
+name_or_path: google/gemma-2-2b
+block_name: Gemma2DecoderLayer
+attn_implementation: eager

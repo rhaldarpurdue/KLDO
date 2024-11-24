@@ -422,7 +422,7 @@ class UnpairedPreferenceTrainer(BasicTrainer):
             else:
                 all_logits = model(
                     batch['target_combined_input_ids'], 
-                    attention_mask=batch['target_combined_attention_mask'],
+                    attention_mask=batch['target_combined_attention_mask'], use_cache=False
                 ).logits.to(self.policy_dtype)
             
                 all_logps = self.get_batch_logps(all_logits, batch['target_labels'])
@@ -522,7 +522,7 @@ class PairedPreferenceTrainer(BasicTrainer):
             else:
                 all_logits = model(
                     concatenated_batch['concatenated_combined_input_ids'], 
-                    attention_mask=concatenated_batch['concatenated_combined_attention_mask'],
+                    attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=False
                 ).logits.to(self.policy_dtype)
                 
                 all_logps = self.get_batch_logps(all_logits, concatenated_batch['concatenated_labels'])
@@ -711,7 +711,7 @@ class KTOTrainer(UnpairedPreferenceTrainer):
                 else:
                     KL_logits = model(
                         batch[f'KL_combined_input_ids'],
-                        attention_mask=batch[f'KL_combined_attention_mask']
+                        attention_mask=batch[f'KL_combined_attention_mask'], use_cache=False
                     ).logits.to(self.policy_dtype)
 
                     KL_logps = self.get_batch_logps(KL_logits, batch[f'KL_labels'])
@@ -721,7 +721,7 @@ class KTOTrainer(UnpairedPreferenceTrainer):
             else:
                 target_logits = model(
                     batch[f'target_combined_input_ids'],
-                    attention_mask=batch[f'target_combined_attention_mask']
+                    attention_mask=batch[f'target_combined_attention_mask'], use_cache=False
                 ).logits.to(self.policy_dtype)
 
                 target_logps = self.get_batch_logps(target_logits, batch[f'target_labels'])
