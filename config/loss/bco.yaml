@@ -1,0 +1,15 @@
+
+# Binary Crossentropy Optimization
+name: bco
+
+# the temperature parameter for KL optimization
+beta: 0.1
+
+# moving average rate for tracking rejected ratios
+moving_avg_rate: 0.1
+
+trainer: BCOTrainer
+
+dataloader: UnpairedPreferenceDataLoader
+
+use_reference_model: true

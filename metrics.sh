@@ -11,7 +11,7 @@ huggingface-cli login --token $HUGGING_FACE_API_KEY
 
 base_model=meta-llama/Llama-3.2-1B
 base_path=./data/models
-alignments=("kl-ma_llama-3.2-1b_5e-05_5" "kto_llama-3.2-1b_5e-05_5") #"dpo_llama-3.2-1b_5e-05_5")
+alignments=("kl-ma_llama-3.2-1b_5e-05_5" "kto_llama-3.2-1b_5e-05_5" "dpo_llama-3.2-1b_5e-05_5")
 anchors=("./dataset_generation/benign.txt" "./dataset_generation/harmful.txt")
 
 python metrics.py --num_samples 1000\

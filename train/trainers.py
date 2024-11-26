@@ -858,7 +858,7 @@ class PPOTrainer(BasicTrainer):
             if use_cache:
                 all_logps = model(batch['target_combined_input_ids']).to(self.policy_dtype).to(self.accelerator.device)
             else:
-                all_logits = model(batch['target_combined_input_ids'], attention_mask=batch['target_combined_attention_mask']).logits.to(self.policy_dtype)
+                all_logits = model(batch['target_combined_input_ids'], attention_mask=batch['target_combined_attention_mask'],use_cache=False).logits.to(self.policy_dtype)
                 all_values = None
 
         all_logps = self.get_batch_logps(all_logits.to(self.policy_dtype), batch['target_labels'])
@@ -1319,12 +1319,16 @@ class KLTrainer(UnpairedPreferenceTrainer):
         combined_rewards = torch.cat((chosen_rewards.detach(), rejected_rewards.detach()), 0)
         combined_statuses = torch.Tensor([1] * len(chosen_rewards) + [0] * len(rejected_rewards)).to(self.accelerator.device)
 
-        if self.config.loss.type=='ma':
-            unaligned_loss, self.moving_avg_track = ema_loss(T_rejected, self.moving_avg_track, self.moving_avg_rate)
-        elif self.config.loss.type=='biased':
-            unaligned_loss = torch.logsumexp(T_rejected, 0) - math.log(T_rejected.shape[0])
-        elif self.config.loss.type=='f-div':
-            unaligned_loss = torch.exp(T_rejected - 1).mean()
+        if T_rejected.shape[0] == 0:
+            #no observations as rejected
+            unaligned_loss = 0
+        else:
+            if self.config.loss.type=='ma':
+                unaligned_loss, self.moving_avg_track = ema_loss(T_rejected, self.moving_avg_track, self.moving_avg_rate)
+            elif self.config.loss.type=='biased':
+                unaligned_loss = torch.logsumexp(T_rejected, 0) - math.log(T_rejected.shape[0])
+            elif self.config.loss.type=='f-div':
+                unaligned_loss = torch.exp(T_rejected - 1).mean()
         aligned_loss = T_chosen.mean()
 
         if self.config.loss.normalize:
@@ -1350,6 +1354,164 @@ class KLTrainer(UnpairedPreferenceTrainer):
             del reference_chosen_logps, reference_rejected_logps
 
         return (-aligned_loss + unaligned_loss), metrics
+    
+    def train(self):
+        """Begin either SFT or HALO training, with periodic evaluation. This is subclassed when implementing PPO."""
+
+        self.accelerator.print(f'Using {self.config.optimizer} optimizer with learning rate {self.config.lr}')
+        
+        if self.reference_model is not None:
+            self.reference_model.eval()
+        
+        for epoch in range(self.config.global_epochs):
+            self.accelerator.print(f'====== Running epoch {epoch}/{self.config.global_epochs} =========')
+            self.accelerator.print(f'Resetting moving avg to 0')
+            self.reset_moving_avg()
+
+            last_log = None
+            batch_metrics = defaultdict(list)
+
+            for batch in self.train_iterator:
+                if self.batch_counter < self.num_skip_batches:
+                    self.batch_counter += 1
+                    self.example_counter += self.config.model.batch_size
+                    continue
+
+                # EVALUATION
+                if self.example_counter % self.config.eval_every == 0 and (self.example_counter > 0 or self.config.do_first_eval):
+                    results = self.eval()
+
+                    if self.example_counter > 0:
+                        if self.config.debug:
+                            self.accelerator.print('skipping save in debug mode')
+                        elif self.config.intermediate_checkpoints:
+                            output_dir = os.path.join(self.run_dir, f'step-{self.example_counter}')
+                            self.accelerator.print(f'creating checkpoint to write to {output_dir}...')
+                            self.save(output_dir, results['results'], final_save=False)
+
+                    self.accelerator.print(results['results'])
+                    delete_dicts(results)
+
+                # TRAINING
+                self.policy.train()
+                accumulated = 0
+                start_time = time.time()
+                
+                with self.accelerator.accumulate(self.policy):
+                    batch = {k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    loss, metrics = self.get_batch_metrics(batch)
+                    self.accelerator.backward(loss)
+
+                    for k, v in metrics.items():
+                        batch_metrics[k].extend(torch.as_tensor(v).reshape(-1).float().cpu().numpy().tolist())
+
+                    grad_norm = self.accelerator.clip_grad_norm_(self.policy.parameters(), self.config.model.max_grad_norm)
+                    batch_metrics['grad_norm'].extend(torch.as_tensor(grad_norm).reshape(-1).float().cpu().numpy().tolist())
+                    self.optimizer.step()
+                    self.scheduler.step()
+                    self.optimizer.zero_grad()
+                    accumulated += 1
+
+                step_time = time.time() - start_time
+                examples_per_second = self.config.model.batch_size / step_time
+                batch_metrics['examples_per_second'].append(examples_per_second)
+                
+                self.batch_counter += 1
+                self.example_counter += self.config.model.batch_size
+
+                if last_log is None or time.time() - last_log > self.config.minimum_log_interval_secs:
+                    mean_train_metrics = {}
+                    for k, v in batch_metrics.items():
+                        if len(v) > 0:
+                            mean_train_metrics[k] = sum(v) / len(v)
+
+                    mean_train_metrics['counters/examples'] = self.example_counter
+                    mean_train_metrics['counters/updates'] = self.batch_counter
+                    self.accelerator.print(f'train stats after {self.example_counter} examples: {formatted_dict(mean_train_metrics)}')
+
+                    if self.config.wandb.enabled and self.accelerator.is_main_process:
+                        wandb.log(mean_train_metrics, step=self.example_counter)
+
+                    last_log = time.time()
+                    batch_metrics = defaultdict(list)
+                else:
+                    self.accelerator.print(f'skipping logging after {self.example_counter} examples to avoid logging too frequently')
+
+                delete_dicts(batch, metrics, batch_metrics, mean_train_metrics)
+
+                if accumulated >= self.config.model.gradient_accumulation_steps:
+                    self.free_memory()
+                    accumulated = 0
+
+class BCOTrainer(UnpairedPreferenceTrainer):
+
+    def __init__(self, 
+                 tokenizer: AutoTokenizer, 
+                 config: DictConfig, 
+                 train_iterator: dataloader.DataLoader, 
+                 eval_iterator: dataloader.DataLoader, 
+                 accelerator: Accelerator,
+                 optimizer: torch.optim.Optimizer,
+                 scheduler: torch.optim.lr_scheduler.LRScheduler,
+                 policy: nn.Module, 
+                 reference_model: Optional[nn.Module] = None,
+                 num_skip_batches=0
+                 ):
+        
+        super().__init__(tokenizer, 
+        config, 
+        train_iterator, 
+        eval_iterator,
+        accelerator, 
+        optimizer,
+        scheduler,
+        policy, 
+        reference_model,
+        num_skip_batches)
+
+        self.moving_avg_track = 0
+        self.moving_avg_rate = config.loss.moving_avg_rate
+
+    def loss(self,
+             policy_chosen_logps: torch.FloatTensor,
+             policy_rejected_logps: torch.FloatTensor,
+             reference_chosen_logps: torch.FloatTensor,
+             reference_rejected_logps: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+
+        if policy_chosen_logps.shape[0] != 0:
+            chosen_rewards = self.config.loss.beta*(policy_chosen_logps.sum(-1) - reference_chosen_logps.sum(-1))
+        else:
+            # important to cast to policy_dtype; otherwise error will occur during all_gather
+            chosen_losses = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+            chosen_rewards = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+        
+        if policy_rejected_logps.shape[0] != 0:
+            rejected_rewards = self.config.loss.beta*(policy_rejected_logps.sum(-1) - reference_rejected_logps.sum(-1))
+        else:
+            # important to cast to policy_dtype; otherwise error will occur during all_gather
+            rejected_losses = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+            rejected_rewards = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+        
+        rewards = torch.cat((chosen_rewards, rejected_rewards), 0).mean().detach()
+        if self.moving_avg_track == 0:
+            self.moving_avg_track = rewards
+        else:
+            self.moving_avg_track = self.moving_avg_track*(1-self.moving_avg_rate)+self.moving_avg_rate*self.moving_avg_track
+
+        if policy_chosen_logps.shape[0] != 0 or reference_chosen_logps.shape[0] != 0:
+            chosen_losses = -F.logsigmoid(chosen_rewards - self.moving_avg_track)
+
+        if policy_rejected_logps.shape[0] != 0 or reference_rejected_logps.shape[0] != 0:
+            rejected_losses = -F.logsigmoid(-(rejected_rewards - self.moving_avg_track))
+
+        losses = torch.cat((chosen_losses, rejected_losses), 0)
+
+        return losses, chosen_rewards.detach(), rejected_rewards.detach()
+    
+
+    def reset_moving_avg(self):
+        self.moving_avg_track = 0
+    
     
     def train(self):
         """Begin either SFT or HALO training, with periodic evaluation. This is subclassed when implementing PPO."""

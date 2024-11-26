@@ -225,7 +225,7 @@ for idx, anchor_path in enumerate(args.anchors):
 #model alignment paths
 base_path = args.base_path
 model_list=['base']+ [f'{base_path}/{a}/FINAL/merged.pt' for a in args.alignments]
-model_labels=['base'] + [f'{a}' for a in args.alignments]
+model_labels=[f'base_{args.base_model.split('/')[-1]}'] + [f'{a}' for a in args.alignments]
 metric=dict()
 
 for model_p, model_label in zip(model_list,model_labels):
