@@ -14,14 +14,14 @@ conda activate /depot/qfsong/LLM/env/halos
 
 loss=kto
 datasets=[kl] #[shp,hh,oasst]
-model=mistral
+model=gemma2-2b
 lr=5e-05
 epochs=5
 #exp_name=${loss}_${model}_${lr}_${epochs}
 cache=./data/models
 batch_size=8
 optimizer=AdamW
-gradient_accumulation=4
+gradient_accumulation=1
 #type=ma #ma, biased, f-div
 exp_name=${loss}_${model}_${lr}_${epochs}
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH -A standby
 #SBATCH --gpus-per-node=2
-#SBATCH -C A100-80GB
+#SBATCH -C A100
 #SBATCH --time=04:00:00
-#SBATCH --job-name bco
+#SBATCH --job-name kl
 #SBATCH --output ./log/%x_%j.out
 #SBATCH --error ./log/%x_%j.err
 
@@ -12,7 +12,7 @@ module load cudnn/cuda-12.1_8.9
 
 conda activate /depot/qfsong/LLM/env/halos
 
-loss=bco
+loss=kl
 datasets=[kl] #[shp,hh,oasst]
 model=qwen
 lr=5e-05
@@ -21,9 +21,9 @@ epochs=5
 cache=./data/models
 batch_size=8
 optimizer=AdamW
-gradient_accumulation=4
-#type=ma #ma, biased, f-div
-exp_name=${loss}_${model}_${lr}_${epochs}
+gradient_accumulation=1
+type=ma #ma, biased, f-div
+exp_name=${loss}-${type}-NoSCALE_${model}_${lr}_${epochs}
 
 export TRANSFORMERS_CACHE=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/hub
 export HF_HOME=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/
@@ -45,4 +45,6 @@ accelerate launch \
     ++model.batch_size=${batch_size} \
     ++optimizer=${optimizer} \
     ++model.gradient_accumulation_steps=${gradient_accumulation} \
+    ++loss.type=${type} \
+    ++loss.normalize=false \
     ++intermediate_checkpoints=false

@@ -12,8 +12,8 @@ huggingface-cli login --token $HUGGING_FACE_API_KEY
 base_model=google/gemma-2-2b
 base_path=./data/models
 alignments=("kl-ma_gemma2-2b_5e-05_5" "dpo_gemma2-2b_5e-05_5" "kto_gemma2-2b_5e-05_5")
-anchors=("./dataset_generation/benign.txt" "./dataset_generation/harmful.txt")
-output_dir=../experiments/anchor_train
+anchors=("./dataset_generation/data/prompt-driven_benign.txt" "./dataset_generation/data/prompt-driven_harmful.txt")
+output_dir=../experiments/anchors
 
 python metrics.py --num_samples 1000\
     --viz \

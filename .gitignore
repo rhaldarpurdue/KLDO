@@ -1,6 +1,7 @@
 outputs/
 wandb/
-__pycache__/
+# Ignore pycache at all levels
+**/__pycache__/
 openai_configs.yaml
 lm-evaluation-harness/
 eval/bigcode-evaluation-harness/
@@ -8,3 +9,9 @@ log/
 data/models
 # Ignore all .csv files
 *.csv
+**/log/
+**/results/
+**/visualization/
+# Unignore the advbench files
+!dataset_generation/data/advbench/harmful_behaviors.csv
+!dataset_generation/data/advbench/harmful_strings.csv

@@ -60,6 +60,7 @@ parser.add_argument(
         default="/depot/qfsong/LLM/scratch/rhaldar/HALOs/data/models/",
         help="base path where the aligned models are stored",
     )
+parser.add_argument("--output_dir",type=str,default='../experiments/anchor_train')
 args = parser.parse_args()
 for key, value in vars(args).items():
     print(f"{key}: {repr(value)}")
@@ -225,7 +226,7 @@ for idx, anchor_path in enumerate(args.anchors):
 #model alignment paths
 base_path = args.base_path
 model_list=['base']+ [f'{base_path}/{a}/FINAL/merged.pt' for a in args.alignments]
-model_labels=[f'base_{args.base_model.split('/')[-1]}'] + [f'{a}' for a in args.alignments]
+model_labels=[f'base_{args.base_model.split("/")[-1]}'] + [f'{a}' for a in args.alignments]
 metric=dict()
 
 for model_p, model_label in zip(model_list,model_labels):
@@ -268,7 +269,7 @@ for model_p, model_label in zip(model_list,model_labels):
             num_components_to_draw=2,
             color_list_string=color_list,
             embedding_labels=embedding_labels,
-            filename=f'../experiments/anchor_train/{model_label}.png',plt_name=model_label
+            filename=f'{args.output_dir}/{model_label}.png',plt_name=model_label
         )
     sc, bd ,bc = get_metrics(hidden_states_anchors_list,
                              pca)
@@ -281,7 +282,7 @@ for model_p, model_label in zip(model_list,model_labels):
 
 import json 
 
-file_path = f"../experiments/{args.alignments[0][5:]}.json" 
+file_path = f'{args.output_dir}/{args.alignments[0].split("_")[1]}.json'
 # Write the dictionary to a JSON file 
 with open(file_path, "w") as json_file:
     json.dump(metric, json_file, indent=4)
