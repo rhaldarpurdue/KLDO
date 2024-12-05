@@ -2,10 +2,11 @@
 #SBATCH -A standby
 #SBATCH --gpus-per-node=2
 #SBATCH -C A100
-#SBATCH --time=04:00:00
-#SBATCH --job-name kl
+#SBATCH --time=01:00:00
+#SBATCH --job-name dpo_mistral
 #SBATCH --output ../log/%x_%j.out
 #SBATCH --error ../log/%x_%j.err
+#SBATCH --mem=40GB
 
 module load anaconda/2024.02-py311
 module load cudnn/cuda-12.1_8.9
@@ -23,8 +24,8 @@ huggingface-cli login --token $HUGGING_FACE_API_KEY
 data_name="adv_bench"
 dataset="../dataset_generation/data/advbench/harmful_behaviors.csv"
 column="goal" # "goal" for adv_bench, None for MaliciousInstruct
-model_name=google/gemma-2-2b
-model_path="../data/models/kto_gemma2-2b_5e-05_5/FINAL" # "base", for original model
+model_name=mistralai/Mistral-7B-v0.1
+model_path="../data/models/dpo_mistral_5e-05_5/FINAL" # "base", for original model
 
 # Extract the model configuration
 if [ "$model_path" = "base" ]; then

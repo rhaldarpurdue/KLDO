@@ -9,13 +9,13 @@ export HUGGING_FACE_API_KEY=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
 
 huggingface-cli login --token $HUGGING_FACE_API_KEY
 
-base_model=google/gemma-2-2b
+base_model=Qwen/Qwen2.5-1.5B
 base_path=./data/models
-alignments=("kl-ma_gemma2-2b_5e-05_5" "dpo_gemma2-2b_5e-05_5" "kto_gemma2-2b_5e-05_5")
+alignments=("kl-ma_qwen_5e-05_5" "dpo_qwen_5e-05_5" "kto_qwen_5e-05_5" "kl-ma-NoSCALE_qwen_5e-05_5" "bco_qwen_5e-05_5")
 anchors=("./dataset_generation/benign.txt" "./dataset_generation/harmful.txt")
 output_dir=../experiments/anchor_train
 
-python metrics.py --num_samples 1000\
+python metrics.py --num_samples 2000\
     --viz \
     --base_model ${base_model}\
     --base_path ${base_path}\
