@@ -2,8 +2,8 @@
 module load anaconda/2024.02-py311 # change it to your own anaconda module
 module load cudnn/cuda-12.1_8.9 # change it to your own cuda module
 #conda create --name halos python=3.10.14
-conda create --prefix /depot/qfsong/LLM/env/halos python=3.10.14 # change the prefix directory
-conda activate /depot/qfsong/LLM/env/halos
+conda create --prefix your_env_path/kldo python=3.10.14 # change the prefix directory
+conda activate your_env_path/kldo
 
 conda install pip
 pip install packaging ninja

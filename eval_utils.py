@@ -146,11 +146,7 @@ def load_model_and_tokenizer(model_name,google=False):
             trust_remote_code=True
         )
         print("Using FP16 and normal attention implementation...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,
-            token="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",
-            use_fast=False) if "EleutherAI/pythia" not in model_name else AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,
-            token="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",
-            use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,use_fast=False) if "EleutherAI/pythia" not in model_name else AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     if tokenizer.clean_up_tokenization_spaces == True:

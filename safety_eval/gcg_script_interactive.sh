@@ -3,13 +3,18 @@
 module load anaconda/2024.02-py311
 module load cudnn/cuda-12.1_8.9
 
-conda activate /depot/qfsong/LLM/env/halos
+conda activate /your_env_path/halos
 
-export TRANSFORMERS_CACHE=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/hub
-export HF_HOME=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/
-export HF_DATASETS_CACHE=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/datasets
-export WANDB_API_KEY=8e4a0bf8aa276a6a441763aab7441d43ed309205
-export HUGGING_FACE_API_KEY=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
+hf_cache=your_hf_cache_dir
+wand_api_key=your_wandb_key
+wdir=your_working_dir
+hf_key=your_hugging_face_key
+
+export TRANSFORMERS_CACHE=${hf_cache}/hub
+export HF_HOME=${hf_cache}/
+export HF_DATASETS_CACHE=${hf_cache}/datasets
+export WANDB_API_KEY=${wand_api_key}
+export HUGGING_FACE_API_KEY=${hf_key}
 
 huggingface-cli login --token $HUGGING_FACE_API_KEY
 
