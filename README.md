@@ -1,5 +1,5 @@
 
-# **KLDO: KL Divergence Optimizer**
+# **KLDO: KL Divergence Optimizer for LLM Alignment**
 
 This repo builds upon the  [HALOs repo](https://github.com/ContextualAI/HALOs/tree/main). For understanding the base functionality refer to the original [HALOs repo](https://github.com/ContextualAI/HALOs/tree/main). 
 
