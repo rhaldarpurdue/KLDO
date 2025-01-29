@@ -16,5 +16,5 @@ data/models
 !dataset_generation/data/advbench/harmful_behaviors.csv
 !dataset_generation/data/advbench/harmful_strings.csv
 # Additional ignore scripts
-test_launch_*.sh
-launch_*.sh
+test*.sh
+launch*.sh
