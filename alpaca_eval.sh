@@ -1,19 +1,10 @@
 #!/bin/bash
-#SBATCH -A standby
-#SBATCH --gpus-per-node=1
-#SBATCH -C A100
-#SBATCH --nodes=1
-#SBATCH --time=02:00:00
-#SBATCH --job-name BCO_DPO_Eval
-#SBATCH --output ./log/%x_%j.out
-#SBATCH --error ./log/%x_%j.err
-#SBATCH --mem=40GB
 
 
-MODEL_PATH="./data/models/bco_llama-3.2-1b_5e-05_5/FINAL"
-OUTPUT_FILE="./outputs/alpacaeval/bco_llama-3.2-1b_5e-05_5/generation.json"
-MODEL_NAME=meta-llama/Llama-3.2-1B
-REFERENCE_OUTPUTS="./outputs/alpacaeval/dpo_llama-3.2-1b_5e-05_5/generation.json"
+MODEL_PATH="./data/models/dpo_mistral_5e-05_5/FINAL"
+OUTPUT_FILE="./outputs/alpacaeval/kto_mistral_5e-05_5/generation.json"
+OUT_PATH="./outputs/alpacaeval/kl-shift_mistral_5e-05_5_F/kto_mistral_5e-05_5"
+REFERENCE_OUTPUTS="./outputs/alpacaeval/kl-shift_mistral_5e-05_5_F/generation2.json"
 
 
 echo "Running on node: $(hostname)"
@@ -49,7 +40,7 @@ time=$(date "+%Y%m%d-%H%M%S")
 echo "Start time: $time"
 # time=$(date "+%Y%m%d-%H%M%S")
 # echo "Generation End time: $time"
-alpaca_eval evaluate --is_overwrite_leaderboard=True --model_outputs="$OUTPUT_FILE" --reference_outputs="$REFERENCE_OUTPUTS"
+alpaca_eval evaluate --is_overwrite_leaderboard=True --model_outputs="$OUTPUT_FILE" --reference_outputs="$REFERENCE_OUTPUTS" --output_path="$OUT_PATH"
 time=$(date "+%Y%m%d-%H%M%S")
 echo "Evaluation End time: $time"
 

@@ -9,11 +9,12 @@ export HUGGING_FACE_API_KEY=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
 
 huggingface-cli login --token $HUGGING_FACE_API_KEY
 
-base_model=Qwen/Qwen2.5-1.5B
+base_model=ContextualAI/archangel_sft_llama7b #EleutherAI/pythia-1b  #mistralai/Mistral-7B-v0.1  #google/gemma-2-2b #Qwen/Qwen2.5-1.5B  #meta-llama/Llama-3.2-1B #ContextualAI/archangel_sft_llama7b 
 base_path=./data/models
-alignments=("kl-ma_qwen_5e-05_5" "dpo_qwen_5e-05_5" "kto_qwen_5e-05_5" "kl-ma-NoSCALE_qwen_5e-05_5" "bco_qwen_5e-05_5")
+name=llama7b_sft_5e-05_5
+alignments=(hdo_${name}_F kl-ma_${name}_F dpo_${name} kto_${name} bco_${name}_F)
 anchors=("./dataset_generation/benign.txt" "./dataset_generation/harmful.txt")
-output_dir=../experiments/anchor_train
+output_dir=../experiments/final_paper_plots
 
 python metrics.py --num_samples 2000\
     --viz \

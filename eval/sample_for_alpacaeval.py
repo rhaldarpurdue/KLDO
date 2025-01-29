@@ -3,7 +3,7 @@ import json
 import sys
 import re
 from typing import List, Dict
-from vllm import LLM, SamplingParams
+# from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from train.dataloader import SFTDataLoader
 from train.utils import set_offline_if_needed
@@ -35,12 +35,12 @@ def get_response(generator, prompt_list, tokenizer):
             num_beams=1,  # Use beam search with 5 beams
             #early_stopping=True,  # Enable early stopping
             no_repeat_ngram_size=2,  # Ensure diversity  # Stop when the length is minimum
-            pad_token_id=tokenizer.pad_token_id,stop_strings=['<|im_end|>'],tokenizer=tokenizer
+            pad_token_id=tokenizer.pad_token_id,stop_strings=['<|im_end|>', '<im End>', '<|Im_End|>', '< |im-end>', '<| im_ end|>', 'im-end','< |im-end >'],tokenizer=tokenizer
         )[0] if args.sampling == 'greedy' else generator.generate(
             **input_encoded,
             max_new_tokens=1024,
             do_sample=True,
-            top_p=0.95,stop_strings=['<|im_end|>'],tokenizer=tokenizer
+            top_p=0.95,stop_strings=['<|im_end|>', '<im End>', '<|Im_End|>', '< |im-end>', '<| im_ end|>', 'im-end', '< |im-end >'],tokenizer=tokenizer
         )[0]
         reply_ids = output_ids[input_encoded["input_ids"].shape[-1] :]
         response = tokenizer.decode(reply_ids, skip_special_tokens=True).strip()
@@ -53,7 +53,7 @@ def main(args):
     
     # Load the model and tokenizer
     print(f"Loading model and tokenizer from {args.model_name}")
-    model, tokenizer = load_model_and_tokenizer(args.model_name)
+    model, tokenizer = load_model_and_tokenizer(args.model_name, args.google)
 
     if args.model_path != 'base':
         print(f"Loading the {args.model_path}")
@@ -131,6 +131,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_prompt_length", type=int, default=512, help="Maximum length of prompt (in tokens)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
     parser.add_argument("--sampling", type=str, default="greedy", help="Sampling method")
+    parser.add_argument("--google", action="store_true", help="Use Google model")
   
     args = parser.parse_args()
     main(args)

@@ -13,8 +13,8 @@ module load cudnn/cuda-12.1_8.9
 conda activate /depot/qfsong/LLM/env/halos
 
 loss=kl
-datasets=[kl] #[shp,hh,oasst]
-model=qwen
+datasets=[cr] #[shp,hh,oasst]
+model=mistral #gemma2-2b #llama7b_sft #llama-3.2-1b #gemma2-2b
 lr=5e-05
 epochs=5
 #exp_name=${loss}_${model}_${lr}_${epochs}

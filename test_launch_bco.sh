@@ -3,9 +3,11 @@
 #SBATCH --gpus-per-node=2
 #SBATCH -C A100-80GB
 #SBATCH --time=04:00:00
-#SBATCH --job-name bco
+#SBATCH --job-name bco-pythia
 #SBATCH --output ./log/%x_%j.out
 #SBATCH --error ./log/%x_%j.err
+#SBATCH --mem=40GB
+#SBATCH --cpus-per-task=16
 
 module load anaconda/2024.02-py311 
 module load cudnn/cuda-12.1_8.9 
@@ -13,17 +15,17 @@ module load cudnn/cuda-12.1_8.9
 conda activate /depot/qfsong/LLM/env/halos
 
 loss=bco
-datasets=[kl] #[shp,hh,oasst]
-model=qwen
+datasets=[pref] #[cr] #[shp,hh,oasst]
+model=llama-3.2-1b #llama7b_sft #llama-3.2-1b #mistral #qwen #gemma2-2b #pythia
 lr=5e-05
 epochs=5
 #exp_name=${loss}_${model}_${lr}_${epochs}
-cache=./data/models
+cache=./data/models/pref
 batch_size=8
 optimizer=AdamW
-gradient_accumulation=1
+gradient_accumulation=4
 #type=ma #ma, biased, f-div
-exp_name=${loss}_${model}_${lr}_${epochs}
+exp_name=${loss}_${model}_${lr}_${epochs}_${gradient_accumulation}
 
 export TRANSFORMERS_CACHE=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/hub
 export HF_HOME=/depot/qfsong/LLM/scratch/rhaldar/hf_cache/

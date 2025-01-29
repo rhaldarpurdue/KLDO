@@ -1,11 +1,13 @@
 #!/bin/bash
 #SBATCH -A standby
 #SBATCH --gpus-per-node=2
-#SBATCH -C A100
+#SBATCH -C A100-80GB
 #SBATCH --time=04:00:00
-#SBATCH --job-name kl
+#SBATCH --job-name kl-pythia
 #SBATCH --output ./log/%x_%j.out
 #SBATCH --error ./log/%x_%j.err
+#SBATCH --mem=40GB
+#SBATCH --cpus-per-task=16
 
 module load anaconda/2024.02-py311 
 module load cudnn/cuda-12.1_8.9 
@@ -13,8 +15,8 @@ module load cudnn/cuda-12.1_8.9
 conda activate /depot/qfsong/LLM/env/halos
 
 loss=kl
-datasets=[kl] #[shp,hh,oasst]
-model=gemma2-2b
+datasets=[cr] #[pref] #[shp,hh,oasst]
+model=pythia #llama7b_sft #llama-3.2-1b #mistral #qwen #gemma2-2b
 lr=5e-05
 epochs=5
 #exp_name=${loss}_${model}_${lr}_${epochs}

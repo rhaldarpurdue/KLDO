@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument("--model_path", type=str, help="Path to the local model")
     parser.add_argument("--model_name", type=str, help="Model Name. Used for load tokenizer.")
     parser.add_argument("--dataset", type=str, required=True)
+    parser.add_argument('--google', action='store_true', help='Gemma or Google model for eager attn')
     parser.add_argument(
         "--column",
         type=str,
@@ -61,7 +62,7 @@ def main():
 
     # Load the model and tokenizer
     print(f"Loading model and tokenizer from {args.model_name}")
-    model, tokenizer = load_model_and_tokenizer(args.model_name)
+    model, tokenizer = load_model_and_tokenizer(args.model_name, google=args.google)
 
     if args.model_path != 'base':
         weights_path = os.path.join(os.getcwd(),args.model_path, 'merged.pt')

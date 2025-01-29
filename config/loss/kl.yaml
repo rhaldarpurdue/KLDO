@@ -16,4 +16,8 @@ use_reference_model: true
 
 type: ma #biased, ma, f-div
 
-normalize: false
+normalize: true
+
+shift: false
+
+#aligned_multiplier: 1

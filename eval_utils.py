@@ -107,7 +107,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def load_model_and_tokenizer(model_name):
+def load_model_and_tokenizer(model_name,google=False):
     is_higher_than_ampere = torch.cuda.is_bf16_supported()
     try:
         import flash_attn
@@ -118,15 +118,25 @@ def load_model_and_tokenizer(model_name):
 
     # Even flash_attn is installed, if <= Ampere, flash_attn will not work
     if is_higher_than_ampere and is_flash_attn_available:
-        model = AutoModelForCausalLM.from_pretrained(
+        if google:
+            model = AutoModelForCausalLM.from_pretrained(
             model_name,
             device_map="auto",
             low_cpu_mem_usage=True,
             torch_dtype=torch.float16,  # NumPy doesn't support BF16
-            attn_implementation="flash_attention_2",
-            trust_remote_code=True
-        )
-        print("Using FP16 and Flash-Attention 2...")
+            attn_implementation="eager",
+            trust_remote_code=True)
+            print("Using FP16 and eager attention for google model...")
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                device_map="auto",
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16,  # NumPy doesn't support BF16
+                attn_implementation="flash_attention_2",
+                trust_remote_code=True
+            )
+            print("Using FP16 and Flash-Attention 2...")
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
@@ -138,7 +148,9 @@ def load_model_and_tokenizer(model_name):
         print("Using FP16 and normal attention implementation...")
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,
             token="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",
-            use_fast=False)
+            use_fast=False) if "EleutherAI/pythia" not in model_name else AutoTokenizer.from_pretrained(model_name, trust_remote_code=True,
+            token="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",
+            use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     if tokenizer.clean_up_tokenization_spaces == True:

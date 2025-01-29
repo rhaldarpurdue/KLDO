@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH -A standby
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus-per-node=1
 #SBATCH -C A100
-#SBATCH --time=01:00:00
-#SBATCH --job-name dpo_mistral
+#SBATCH --time=04:00:00
+#SBATCH --job-name pref_kto_lamma
 #SBATCH --output ../log/%x_%j.out
 #SBATCH --error ../log/%x_%j.err
 #SBATCH --mem=40GB
@@ -24,8 +24,8 @@ huggingface-cli login --token $HUGGING_FACE_API_KEY
 data_name="adv_bench"
 dataset="../dataset_generation/data/advbench/harmful_behaviors.csv"
 column="goal" # "goal" for adv_bench, None for MaliciousInstruct
-model_name=mistralai/Mistral-7B-v0.1
-model_path="../data/models/dpo_mistral_5e-05_5/FINAL" # "base", for original model
+model_name=meta-llama/Llama-3.2-1B #Qwen/Qwen2.5-1.5B #mistralai/Mistral-7B-v0.1 #google/gemma-2-2b #meta-llama/Llama-3.2-1B #ContextualAI/archangel_sft_llama7b
+model_path="../data/models/pref/pref_kto_llama-3.2-1b_5e-05_5/FINAL" # "base", for original model
 
 # Extract the model configuration
 if [ "$model_path" = "base" ]; then
@@ -43,7 +43,7 @@ LOG_PATH="./log/clean/${data_name}/${model_config}.log"
 
 # Create the directory if it doesn't exist
 mkdir -p "$(dirname "$LOG_PATH")"
-
+#add --google tag for gemma models
 python compliance.py \
         --model_name ${model_name} \
         --model_path ${model_path} \

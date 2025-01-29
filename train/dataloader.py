@@ -93,7 +93,7 @@ class Dataset:
     def __iter__(self):
         return iter(self.data)
 
-def get_kl(split: str) -> Dataset:
+def get_cr(split: str) -> Dataset:
     """
     Load the customized KL dataset and convert it into to a Dataset.
 
@@ -137,6 +137,53 @@ def get_kl(split: str) -> Dataset:
         for i in range(aligned_split):
             data[prompt].pairs.append((i, i+aligned_split))
         data[prompt].dataset_name = 'kl'
+
+    return data
+
+def get_pref(split: str) -> Dataset:
+    """
+    Load the preference version instead of compliance/denial, for the customized KL dataset and convert it into to a Dataset.
+
+    We first create a LLM safety allignment dataset based on the csHuang/SafeAligner and llm-wizard/alpaca-gpt4-data.
+    We then load the dataset from a json file, and convert it into a Dataset. 
+    """
+    rank0_print(f'Loading KL dataset from Huggingface...')
+    dataset = datasets.load_dataset('rhaldar97/Safety_preference', split='train')
+
+    # Split the dataset into train and test 
+    dataset_split = dataset.train_test_split(test_size=0.1, seed=42) 
+    # Access the train and test splits 
+    if split == 'train':
+        dataset = dataset_split['train'] 
+    else:
+        dataset = dataset_split['test']
+     
+    if on_rank0():
+        dataset = tqdm.tqdm(dataset, desc='Processing KL')
+    
+    data = Dataset('kl')
+
+    for row in dataset:
+        conversation = [{"role": "user", "content": row['prompt']}]
+        prompt = row['prompt']
+
+        if int(row['safety']):
+            aligned_list = row['acc_responses']
+            unaligned_list = row['rej_responses']
+        else:
+            aligned_list = row['rej_responses']
+            unaligned_list = row['acc_responses']
+
+        aligned_split = min(len(aligned_list), len(unaligned_list))
+        response = aligned_list[:aligned_split] + unaligned_list[:aligned_split]
+
+        data[prompt].prompt = conversation
+        data[prompt].original_prompt = prompt
+        for response in response:
+            data[prompt].generations.append(response)
+        for i in range(aligned_split):
+            data[prompt].pairs.append((i, i+aligned_split))
+        data[prompt].dataset_name = 'pref'
 
     return data
 

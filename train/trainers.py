@@ -1279,6 +1279,8 @@ class KLTrainer(UnpairedPreferenceTrainer):
         self.moving_avg_track = 0
         self.moving_avg_rate = config.loss.moving_avg_rate
 
+        self.moving_avg_reward = 0
+
     def loss(self,
              policy_chosen_logps: torch.FloatTensor,
              policy_rejected_logps: torch.FloatTensor,
@@ -1294,12 +1296,22 @@ class KLTrainer(UnpairedPreferenceTrainer):
         chosen_rewards = T_chosen.detach()
         rejected_rewards = T_rejected.detach() 
 
+        if self.config.loss.shift:
+            rewards = torch.cat((chosen_rewards, rejected_rewards), 0).mean().detach()
+            if self.moving_avg_reward == 0:
+                self.moving_avg_reward = rewards
+            else:
+                self.moving_avg_reward = self.moving_avg_reward*(1-self.moving_avg_rate)+self.moving_avg_rate*self.moving_avg_reward
+            T_chosen=T_chosen-self.moving_avg_reward
+            T_rejected=T_rejected-self.moving_avg_reward
+
         return T_chosen, T_rejected, chosen_rewards, rejected_rewards
     
 
     
     def reset_moving_avg(self):
         self.moving_avg_track = 0
+        self.moving_avg_reward = 0
     
     def get_batch_metrics(self, batch: Dict[str, Union[List, torch.LongTensor]], mode: str='train'):
         """Compute the loss and other metrics for the given batch of inputs."""
@@ -1333,7 +1345,11 @@ class KLTrainer(UnpairedPreferenceTrainer):
 
         if self.config.loss.normalize:
             min_loss=np.minimum(aligned_loss.item(), unaligned_loss.item())
-            unaligned_loss = unaligned_loss*(min_loss/(unaligned_loss.item()+1e-9))
+            unaligned_loss*(min_loss/(unaligned_loss.item()+1e-9))
+            #helps with stability
+            
+        #range_val=np.abs(aligned_loss.item())+100
+        #unaligned_loss=torch.clamp(unaligned_loss,min=-range_val,max=range_val)
 
         all_rewards = self.accelerator.gather(combined_rewards.detach())
         all_statuses = self.accelerator.gather(combined_statuses.detach())
@@ -1600,3 +1616,61 @@ class BCOTrainer(UnpairedPreferenceTrainer):
                 if accumulated >= self.config.model.gradient_accumulation_steps:
                     self.free_memory()
                     accumulated = 0
+
+class HDOTrainer(UnpairedPreferenceTrainer):
+
+    def __init__(self, 
+                 tokenizer: AutoTokenizer, 
+                 config: DictConfig, 
+                 train_iterator: dataloader.DataLoader, 
+                 eval_iterator: dataloader.DataLoader, 
+                 accelerator: Accelerator,
+                 optimizer: torch.optim.Optimizer,
+                 scheduler: torch.optim.lr_scheduler.LRScheduler,
+                 policy: nn.Module, 
+                 reference_model: Optional[nn.Module] = None,
+                 num_skip_batches=0
+                 ):
+        
+        super().__init__(tokenizer, 
+        config, 
+        train_iterator, 
+        eval_iterator,
+        accelerator, 
+        optimizer,
+        scheduler,
+        policy, 
+        reference_model,
+        num_skip_batches)
+
+
+    def loss(self,
+             policy_chosen_logps: torch.FloatTensor,
+             policy_rejected_logps: torch.FloatTensor,
+             reference_chosen_logps: torch.FloatTensor,
+             reference_rejected_logps: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+
+        if policy_chosen_logps.shape[0] != 0:
+            chosen_rewards = self.config.loss.beta*(policy_chosen_logps.sum(-1) - reference_chosen_logps.sum(-1))
+        else:
+            # important to cast to policy_dtype; otherwise error will occur during all_gather
+            chosen_losses = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+            chosen_rewards = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+        
+        if policy_rejected_logps.shape[0] != 0:
+            rejected_rewards = self.config.loss.beta*(policy_rejected_logps.sum(-1) - reference_rejected_logps.sum(-1))
+        else:
+            # important to cast to policy_dtype; otherwise error will occur during all_gather
+            rejected_losses = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+            rejected_rewards = torch.Tensor([]).to(self.policy_dtype).to(self.accelerator.device)
+        
+        if policy_chosen_logps.shape[0] != 0 or reference_chosen_logps.shape[0] != 0:
+            chosen_losses = torch.exp(-chosen_rewards/2)
+
+        if policy_rejected_logps.shape[0] != 0 or reference_rejected_logps.shape[0] != 0:
+            rejected_losses = torch.exp(rejected_rewards/2)
+
+        losses = torch.cat((chosen_losses, rejected_losses), 0)
+
+        return losses, chosen_rewards.detach(), rejected_rewards.detach()
+    
