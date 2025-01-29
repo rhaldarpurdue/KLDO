@@ -15,6 +15,5 @@ data/models
 # Unignore the advbench files
 !dataset_generation/data/advbench/harmful_behaviors.csv
 !dataset_generation/data/advbench/harmful_strings.csv
-# Additional ignore scripts
-test*.sh
-launch*.sh
+# Ignore arxiv
+arxiv_scripts/
