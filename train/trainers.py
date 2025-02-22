@@ -1345,7 +1345,7 @@ class KLTrainer(UnpairedPreferenceTrainer):
 
         if self.config.loss.normalize:
             min_loss=np.minimum(aligned_loss.item(), unaligned_loss.item())
-            unaligned_loss*(min_loss/(unaligned_loss.item()+1e-9))
+            unaligned_loss = unaligned_loss*(min_loss/(unaligned_loss.item()+1e-9))
             #helps with stability
             
         #range_val=np.abs(aligned_loss.item())+100
