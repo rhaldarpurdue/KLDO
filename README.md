@@ -10,7 +10,9 @@ This repository is based on our NeurIPS 2025 paper **“LLM Safety Alignment is 
 ![Divergence Framework](./assets/framework.png "Divergence Estimation Framework for Alignment")
 ### KLDO Loss
 Alignment loss estimating KL divergence between aligned (Preferred/chosen/safe responses $\sim D^+$) and unaligned distribution (Unpreferred/rejected/harmful responses $\sim D^-$). 
-$$L_{\text{KLDO}}(\theta) = -\mathbb{E}_{D^+} r_\theta(x, y) + \ln \mathbb{E}_{D^-} e^{r_\theta(x, y)},$$
+$$
+L_{\text{KLDO}}(\theta) = -\mathbb{E}_{D^+} r_\theta(x, y) + \ln \mathbb{E}_{D^-} e^{r_\theta(x, y)}
+$$
 where $r_\theta(x,y)=\beta\ln\frac{\pi_\theta(y|x)}{\pi_\text{ref}(y|x)}$.
 ## Disclaimer
 This repo builds upon the  [HALOs repo](https://github.com/ContextualAI/HALOs/tree/main). For understanding the base functionality refer to the original [HALOs repo](https://github.com/ContextualAI/HALOs/tree/main). 
