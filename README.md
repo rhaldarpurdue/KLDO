@@ -1,13 +1,25 @@
 
 # **KLDO: KL Divergence Optimizer for LLM Alignment**
 
+📝 **Paper (arXiv):** https://arxiv.org/abs/2502.00657  
+🧵 **NeurIPS 2025 page:** https://neurips.cc/virtual/2025/loc/san-diego/poster/117222  
+
+This repository is based on our NeurIPS 2025 paper **“LLM Safety Alignment is Divergence Estimation in Disguise”** and provides the official implementation of the **KL Divergence Optimizer (KLDO)** and related experiments.
+
+## Introduction
+![Divergence Framework](./assets/framework.png "Divergence Estimation Framework for Alignment")
+### KLDO Loss
+Alignment loss estimating KL divergence between aligned (Preferred/chosen/safe responses $\sim D^+$) and unaligned distribution (Unpreferred/rejected/harmful responses $\sim D^-$). 
+$$L_{\text{KLDO}}(\theta) = -\mathbb{E}_{D^+} r_\theta(x, y) + \ln \mathbb{E}_{D^-} e^{r_\theta(x, y)},$$
+where $r_\theta(x,y)=\beta\ln\frac{\pi_\theta(y|x)}{\pi_\text{ref}(y|x)}$.
+## Disclaimer
 This repo builds upon the  [HALOs repo](https://github.com/ContextualAI/HALOs/tree/main). For understanding the base functionality refer to the original [HALOs repo](https://github.com/ContextualAI/HALOs/tree/main). 
 
-We have added our own experiments and trainers to supplement the theory in the paper "LLM Safety Alignment is DIvergence Estimation in Disguise".
+We have added our own experiments and trainers to supplement the theory in our paper.
 - We have added our own implementation of BCO, KLDO as `BCOTrainer`, `KLTrainer` in `train/traners.py`
 - To generate compliance-refusal or preference type datasets, refer to `/dataset_generation/generate.py` and `/dataset_generation/generate.py` respectively. The generated datasets can be directly read from jsonl files `/dataset_generation/Base_accept_reject.jsonl`;  `/dataset_generation/Base_preference.jsonl`
 
-## Guide
+## Usage Guide
 
 1. To install the dependencies, clone the repo and run.
 
@@ -28,3 +40,16 @@ We have added our own experiments and trainers to supplement the theory in the p
    - `metrics.sh` can be run with corresponding parameters to generate separation visuzalizations, bhattachrya_distance and silhouette score for the given model of interest.
    - `/safety_eval/clean_asr_script.sh` can be run with corresponding parameters to evaluate the attack success rates.
 6. For more custom configurations like new models, and training parameters config the `config.yaml` and `/model/model_name.yaml` files.
+
+## 📚 Citation
+
+If you use KLDO any part of this repository in your research, please cite:
+
+```bibtex
+@article{haldar2025llm,
+  title={LLM Safety Alignment is Divergence Estimation in Disguise},
+  author={Haldar, Rajdeep and Wang, Ziyi and Song, Qifan and Lin, Guang and Xing, Yue},
+  journal={arXiv preprint arXiv:2502.00657},
+  year={2025}
+}
+```
